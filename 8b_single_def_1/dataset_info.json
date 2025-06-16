@@ -1,0 +1,78 @@
+{
+  "citation": "",
+  "description": "",
+  "features": {
+    "image": {
+      "_type": "Image"
+    },
+    "mask": {
+      "_type": "Image"
+    },
+    "distractors": {
+      "feature": {
+        "dtype": "null",
+        "_type": "Value"
+      },
+      "_type": "Sequence"
+    },
+    "boxed_image": {
+      "_type": "Image"
+    },
+    "box_xmin": {
+      "dtype": "float64",
+      "_type": "Value"
+    },
+    "box_xmax": {
+      "dtype": "float64",
+      "_type": "Value"
+    },
+    "box_ymin": {
+      "dtype": "float64",
+      "_type": "Value"
+    },
+    "box_ymax": {
+      "dtype": "float64",
+      "_type": "Value"
+    },
+    "is_coco": {
+      "dtype": "int64",
+      "_type": "Value"
+    },
+    "label_name": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "co_occurrence": {
+      "dtype": "int64",
+      "_type": "Value"
+    },
+    "written_descriptions": {
+      "feature": {
+        "dtype": "string",
+        "_type": "Value"
+      },
+      "_type": "Sequence"
+    },
+    "spoken_descriptions": {
+      "feature": {
+        "dtype": "string",
+        "_type": "Value"
+      },
+      "_type": "Sequence"
+    },
+    "generated_expression": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "used_split": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "used_prompt_mode": {
+      "dtype": "string",
+      "_type": "Value"
+    }
+  },
+  "homepage": "",
+  "license": ""
+}
