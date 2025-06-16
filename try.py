@@ -1,11 +1,13 @@
-# aya_vision_refexp.py
 import random
-import csv
+import argparse
 from transformers import AutoProcessor, AutoModelForImageTextToText
 from datasets import load_dataset
 import torch
+from huggingface_hub import snapshot_download
+from tqdm import tqdm
 
-# Prompts
+
+# Prompts (your existing lists here)
 DEFAULT_PROMPTS = [
     "Describe the object in the red box in a way that allows another person to distinguish it from all other objects in the image.",
     "Give a clear and specific description of the object in the red box so that another user can find it without hesitation.",
@@ -33,24 +35,25 @@ BRIEF_PROMPTS = [
 ]
 
 # Load Aya Vision model
-model_id = "CohereLabs/aya-vision-8b"
-processor = AutoProcessor.from_pretrained(model_id)
+#model_id = "CohereLabs/aya-vision-32b"
+local_dir = "/scratch/ssd004/scratch/haigelee/Mitacsaya-vision-32b"
+snapshot_download(repo_id="CohereLabs/aya-vision-32b", local_dir=local_dir, local_dir_use_symlinks=False)
+processor = AutoProcessor.from_pretrained(local_dir)
 model = AutoModelForImageTextToText.from_pretrained(
-    model_id,
+    local_dir,
     device_map="auto",
     torch_dtype=torch.float16
 )
 
-def generate_refexp(image_url: str, prompt_mode: str = "default"):
-    prompts = DEFAULT_PROMPTS if prompt_mode == "default" else BRIEF_PROMPTS
-    chosen_prompt = random.choice(prompts)
-    messages = [
-        {"role": "user", "content": [
+def generate_expression(image_url, prompts):
+    prompt = random.choice(prompts)
+    messages = [{
+        "role": "user",
+        "content": [
             {"type": "image", "url": image_url},
-            {"type": "text", "text": chosen_prompt}
-        ]}
-    ]
-    
+            {"type": "text", "text": prompt}
+        ]
+    }]
     inputs = processor.apply_chat_template(
         messages,
         padding=True,
@@ -60,36 +63,59 @@ def generate_refexp(image_url: str, prompt_mode: str = "default"):
         return_tensors="pt"
     ).to(model.device)
 
-    gen_tokens = model.generate(
-        **inputs,
-        max_new_tokens=300,
-        do_sample=True,
-        temperature=0.3,
+    output_tokens = model.generate(
+        **inputs, max_new_tokens=300, do_sample=True, temperature=0.3
     )
-
-    output_text = processor.tokenizer.decode(
-        gen_tokens[0][inputs.input_ids.shape[1]:], skip_special_tokens=True
+    response = processor.tokenizer.decode(
+        output_tokens[0][inputs.input_ids.shape[1]:],
+        skip_special_tokens=True
     )
-    return chosen_prompt, output_text
+    return response
 
-# Load RefOI dataset
-split = "single_presence"  # or "co_occurrence"
-dataset = load_dataset("Seed42Lab/RefOI", split=split)
+def main():
+    parser = argparse.ArgumentParser(description="Generate expressions from Aya Vision for RefOI dataset")
+    parser.add_argument(
+        "--split",
+        choices=["single_presence", "co_occurence"],
+        default="single_presence",
+        help="Dataset split to use"
+    )
+    parser.add_argument(
+        "--prompt_mode",
+        choices=["default", "brief"],
+        default="default",
+        help="Prompt mode to use"
+    )
+    args = parser.parse_args()
 
-# Output CSV
-csv_filename = f"refexp_outputs_{split}.csv"
-with open(csv_filename, mode="w", newline='', encoding="utf-8") as file:
-    writer = csv.writer(file)
-    writer.writerow(["Image URL", "Prompt Mode", "Prompt", "Generated Description", "Label Name", "Is COCO", "Co-Occurrence"])
+    print(f"Using dataset split: {args.split}")
+    print(f"Using prompt mode: {args.prompt_mode}")
 
-    for example in dataset:
-        image_url = example["boxed_image"]
-        label_name = example["label_name"]
-        is_coco = example["is_coco"]
-        co_occur = example["co_occurrence"]
+    # Select prompt list
+    prompts = DEFAULT_PROMPTS if args.prompt_mode == "default" else BRIEF_PROMPTS
 
-        for mode in ["default", "brief"]:
-            prompt, description = generate_refexp(image_url, mode)
-            writer.writerow([image_url, mode, prompt, description, label_name, is_coco, co_occur])
-            print(f"[{mode.upper()}] {prompt}\n→ {description}\n")
+    # Load dataset
+    ds = load_dataset("Seed42Lab/RefOI", split=args.split)
+    ds = ds.select(range(2))
 
+    # Add Aya Vision generated descriptions + meta info
+    new_data = []
+    for i, example in enumerate(tqdm(ds, desc="Generating expressions")):
+        expression = generate_expression(example["boxed_image"], prompts)
+        example["generated_expression"] = expression
+        example["used_split"] = args.split
+        example["used_prompt_mode"] = args.prompt_mode
+        new_data.append(example)
+        print(f"[{i+1}/{len(ds)}] {expression}")
+
+    # (optional saving logic below if you uncomment it)
+    # from datasets import Dataset
+    # new_dataset = Dataset.from_list(new_data)
+    # save_path = f"RefOI_with_generated_{args.split}_{args.prompt_mode}"
+    # new_dataset.save_to_disk(save_path)
+    # print(f"Dataset saved to: {save_path}")
+
+if __name__ == "__main__":
+    main()
+#python try.py --split co_occurence --prompt_mode brief
+#srun -p rtx6000 -c 4 --gres=gpu:rtx6000:1 --mem=20GB --pty --time=1:00:00 bash
