@@ -35,12 +35,13 @@ BRIEF_PROMPTS = [
 ]
 
 # Load Aya Vision model
-model_id = "CohereLabs/aya-vision-8b"
+model_id = "CohereLabs/aya-vision-32b"
 #local_dir = "/scratch/ssd004/scratch/haigelee/Mitacsaya-vision-32b"
 #snapshot_download(repo_id="CohereLabs/aya-vision-32b", local_dir=local_dir, local_dir_use_symlinks=False)
-processor = AutoProcessor.from_pretrained(model_id)
+processor = AutoProcessor.from_pretrained(model_id,cache_dir="/scratch/ssd004/scratch/haigelee/Mitacsaya-vision-32b")
 model = AutoModelForImageTextToText.from_pretrained(
     model_id,
+    cache_dir="/scratch/ssd004/scratch/haigelee/Mitacsaya-vision-32b",
     device_map="auto",
     torch_dtype=torch.float16
 )
@@ -113,7 +114,7 @@ def main():
     from datasets import Dataset
     new_dataset = Dataset.from_list(new_data)
     save_path = f"RefOI_with_generated_{args.split}_{args.prompt_mode}"
-    new_dataset.save_to_disk(save_path)
+    new_dataset.save_to_disk("/scratch/ssd004/scratch/haigelee/Mitacs"+save_path)
     print(f"Dataset saved to: {save_path}")
 
 if __name__ == "__main__":
