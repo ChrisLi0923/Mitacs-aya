@@ -45,12 +45,13 @@ model = AutoModelForImageTextToText.from_pretrained(
     torch_dtype=torch.float16
 )
 
-def generate_expression(image_url, prompts):
+def generate_expression(redbox, prompts):
     prompt = random.choice(prompts)
+    print("\n\n\n",redbox,"\n",prompt,"\n\n\n")
     messages = [{
         "role": "user",
         "content": [
-            {"type": "image", "url": image_url},
+            {"type": "image", "image": redbox},
             {"type": "text", "text": prompt}
         ]
     }]
@@ -118,4 +119,4 @@ def main():
 if __name__ == "__main__":
     main()
 #python try.py --split co_occurence --prompt_mode brief
-#srun -p rtx6000 -c 4 --gres=gpu:rtx6000:1 --mem=20GB --pty --time=1:00:00 bash
+#srun -p rtx6000 -c 4 --gres=gpu:rtx6000:1 --mem=20GB --pty --time=2:00:00 bash
