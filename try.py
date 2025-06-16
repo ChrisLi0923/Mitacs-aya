@@ -7,7 +7,7 @@ from huggingface_hub import snapshot_download
 from tqdm import tqdm
 
 
-# Prompts (your existing lists here)
+# Prompts
 DEFAULT_PROMPTS = [
     "Describe the object in the red box in a way that allows another person to distinguish it from all other objects in the image.",
     "Give a clear and specific description of the object in the red box so that another user can find it without hesitation.",
@@ -35,19 +35,20 @@ BRIEF_PROMPTS = [
 ]
 
 # Load Aya Vision model
-#model_id = "CohereLabs/aya-vision-32b"
-local_dir = "/scratch/ssd004/scratch/haigelee/Mitacsaya-vision-32b"
-snapshot_download(repo_id="CohereLabs/aya-vision-32b", local_dir=local_dir, local_dir_use_symlinks=False)
-processor = AutoProcessor.from_pretrained(local_dir)
+model_id = "CohereLabs/aya-vision-32b"
+#local_dir = "/scratch/ssd004/scratch/haigelee/Mitacsaya-vision-32b"
+#snapshot_download(repo_id="CohereLabs/aya-vision-32b", local_dir=local_dir, local_dir_use_symlinks=False)
+processor = AutoProcessor.from_pretrained(model_id,cache_dir="/scratch/ssd004/scratch/haigelee/Mitacsaya-vision-32b")
 model = AutoModelForImageTextToText.from_pretrained(
-    local_dir,
+    model_id,
+    cache_dir="/scratch/ssd004/scratch/haigelee/Mitacsaya-vision-32b",
     device_map="auto",
     torch_dtype=torch.float16
 )
 
 def generate_expression(redbox, prompts):
     prompt = random.choice(prompts)
-    print("\n\n\n",redbox,"\n",prompt,"\n\n\n")
+    print("\n\n\n",redbox,"\n",prompt,"\n",model.device,"\n\n\n")
     messages = [{
         "role": "user",
         "content": [
@@ -109,14 +110,14 @@ def main():
         new_data.append(example)
         print(f"[{i+1}/{len(ds)}] {expression}")
 
-    # (optional saving logic below if you uncomment it)
-    # from datasets import Dataset
-    # new_dataset = Dataset.from_list(new_data)
-    # save_path = f"RefOI_with_generated_{args.split}_{args.prompt_mode}"
-    # new_dataset.save_to_disk(save_path)
-    # print(f"Dataset saved to: {save_path}")
+    #(optional saving logic below if you uncomment it)
+    from datasets import Dataset
+    new_dataset = Dataset.from_list(new_data)
+    save_path = f"RefOI_with_generated_{args.split}_{args.prompt_mode}"
+    new_dataset.save_to_disk("/scratch/ssd004/scratch/haigelee/Mitacs"+save_path)
+    print(f"Dataset saved to: {save_path}")
 
 if __name__ == "__main__":
     main()
 #python try.py --split co_occurence --prompt_mode brief
-#srun -p rtx6000 -c 4 --gres=gpu:rtx6000:1 --mem=20GB --pty --time=2:00:00 bash
+#srun -p rtx6000 -c 4 --gres=gpu:rtx6000:1 --mem=50GB --pty --time=1:00:00 bash
