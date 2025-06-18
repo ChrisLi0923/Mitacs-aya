@@ -35,13 +35,13 @@ BRIEF_PROMPTS = [
 ]
 
 # Load Aya Vision model
-model_id = "CohereLabs/aya-vision-32b"
+model_id = "CohereLabs/aya-vision-8b"
 #local_dir = "/scratch/ssd004/scratch/haigelee/Mitacsaya-vision-32b"
 #snapshot_download(repo_id="CohereLabs/aya-vision-32b", local_dir=local_dir, local_dir_use_symlinks=False)
-processor = AutoProcessor.from_pretrained(model_id,cache_dir="/scratch/ssd004/scratch/haigelee/Mitacsaya-vision-32b")
+processor = AutoProcessor.from_pretrained(model_id,cache_dir="/scratch/ssd004/scratch/haigelee/Mitacsaya-vision-8b")
 model = AutoModelForImageTextToText.from_pretrained(
     model_id,
-    cache_dir="/scratch/ssd004/scratch/haigelee/Mitacsaya-vision-32b",
+    cache_dir="/scratch/ssd004/scratch/haigelee/Mitacsaya-vision-8b",
     device_map="auto",
     torch_dtype=torch.float16
 )
@@ -78,7 +78,7 @@ def main():
     parser = argparse.ArgumentParser(description="Generate expressions from Aya Vision for RefOI dataset")
     parser.add_argument(
         "--split",
-        choices=["single_presence", "co_occurence"],
+        choices=["single_presence", "co_occurrence"],
         default="single_presence",
         help="Dataset split to use"
     )
@@ -98,7 +98,7 @@ def main():
 
     # Load dataset
     ds = load_dataset("Seed42Lab/RefOI", split=args.split)
-    ds = ds.select(range(2))
+    #ds = ds.select(range(2))
 
     # Add Aya Vision generated descriptions + meta info
     new_data = []
@@ -119,5 +119,5 @@ def main():
 
 if __name__ == "__main__":
     main()
-#python try.py --split co_occurence --prompt_mode brief
+#python try.py --split co_occurrence --prompt_mode brief
 #srun -p rtx6000 -c 4 --gres=gpu:rtx6000:1 --mem=50GB --pty --time=1:00:00 bash
