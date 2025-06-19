@@ -5,6 +5,7 @@ from datasets import load_dataset
 import torch
 from huggingface_hub import snapshot_download
 from tqdm import tqdm
+from accelerate import infer_auto_device_map
 
 
 # Prompts
@@ -38,13 +39,15 @@ BRIEF_PROMPTS = [
 model_id = "CohereLabs/aya-vision-8b"
 #local_dir = "/scratch/ssd004/scratch/haigelee/Mitacsaya-vision-32b"
 #snapshot_download(repo_id="CohereLabs/aya-vision-32b", local_dir=local_dir, local_dir_use_symlinks=False)
-processor = AutoProcessor.from_pretrained(model_id,cache_dir="/scratch/ssd004/scratch/haigelee/Mitacsaya-vision-8b")
+processor = AutoProcessor.from_pretrained(model_id)#,cache_dir="/scratch/ssd004/scratch/haigelee/Mitacsaya-vision-32b")
 model = AutoModelForImageTextToText.from_pretrained(
     model_id,
-    cache_dir="/scratch/ssd004/scratch/haigelee/Mitacsaya-vision-8b",
+    #cache_dir="/scratch/ssd004/scratch/haigelee/Mitacsaya-vision-32b",
     device_map="auto",
     torch_dtype=torch.float16
 )
+print("Model loaded across devices:")
+print(model.hf_device_map)
 
 def generate_expression(redbox, prompts):
     prompt = random.choice(prompts)
@@ -64,6 +67,11 @@ def generate_expression(redbox, prompts):
         return_dict=True,
         return_tensors="pt"
     ).to(model.device)
+
+    # # Move ONLY tensor values to device
+    # for k in inputs:
+    #     if isinstance(inputs[k], torch.Tensor):
+    #         inputs[k] = inputs[k].to(model.device)
 
     output_tokens = model.generate(
         **inputs, max_new_tokens=300, do_sample=True, temperature=0.3
@@ -98,7 +106,7 @@ def main():
 
     # Load dataset
     ds = load_dataset("Seed42Lab/RefOI", split=args.split)
-    #ds = ds.select(range(2))
+    #ds = ds.select(range(2)) #for testing
 
     # Add Aya Vision generated descriptions + meta info
     new_data = []
@@ -114,7 +122,7 @@ def main():
     from datasets import Dataset
     new_dataset = Dataset.from_list(new_data)
     save_path = f"RefOI_with_generated_{args.split}_{args.prompt_mode}"
-    new_dataset.save_to_disk("/scratch/ssd004/scratch/haigelee/Mitacs"+save_path)
+    new_dataset.save_to_disk("/scratch/ssd004/scratch/haigelee/Mitacs/genData/Aya8b/"+save_path)
     print(f"Dataset saved to: {save_path}")
 
 if __name__ == "__main__":

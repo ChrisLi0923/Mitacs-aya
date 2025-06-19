@@ -25,10 +25,10 @@ cd /scratch/ssd004/scratch/haigelee/Mitacs/AYA
 # echo "[$(date)] Running co-occurrence with brief prompt mode"
 # python try.py --split co_occurrence --prompt_mode brief
 
-# echo "[$(date)] Running single presence with default prompt mode again"
+# echo "[$(date)] Running single presence with default prompt mode"
 # python try.py --split single_presence --prompt_mode default
 
-echo "[$(date)] Running co-occurrence with default prompt mode again"
+echo "[$(date)] Running co-occurrence with default prompt mode"
 python try.py --split co_occurrence --prompt_mode default
 
 echo "[$(date)] All done!"
