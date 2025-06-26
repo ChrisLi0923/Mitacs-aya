@@ -23,6 +23,7 @@ DEFAULT_PROMPTS = [
 ]
 
 BRIEF_PROMPTS = [
+    #"用最简洁的方法描述红圈里的物体，以确保它可以被唯一识别。"
     "Describe the red-boxed object using the fewest words while ensuring it can be uniquely identified.",
     "Give a minimal description that allows someone to find the exact object in the red box.",
     "Use the least words necessary to ensure the red-boxed object is unmistakably identifiable.",
@@ -37,12 +38,12 @@ BRIEF_PROMPTS = [
 
 # Load Aya Vision model
 model_id = "CohereLabs/aya-vision-8b"
-#local_dir = "/scratch/ssd004/scratch/haigelee/Mitacsaya-vision-32b"
+#local_dir = "/scratch/ssd004/scratch/haigelee/Mitacsaya-vision-8b"
 #snapshot_download(repo_id="CohereLabs/aya-vision-32b", local_dir=local_dir, local_dir_use_symlinks=False)
-processor = AutoProcessor.from_pretrained(model_id)#,cache_dir="/scratch/ssd004/scratch/haigelee/Mitacsaya-vision-32b")
+processor = AutoProcessor.from_pretrained(model_id)#,cache_dir="/scratch/ssd004/scratch/haigelee/Mitacsaya-vision-8b")
 model = AutoModelForImageTextToText.from_pretrained(
     model_id,
-    #cache_dir="/scratch/ssd004/scratch/haigelee/Mitacsaya-vision-32b",
+    #cache_dir="/scratch/ssd004/scratch/haigelee/Mitacsaya-vision-8b",
     device_map="auto",
     torch_dtype=torch.float16
 )
@@ -127,5 +128,5 @@ def main():
 
 if __name__ == "__main__":
     main()
-#python try.py --split co_occurrence --prompt_mode brief
+#python Aya8b.py --split co_occurrence --prompt_mode brief
 #srun -p rtx6000 -c 4 --gres=gpu:rtx6000:1 --mem=50GB --pty --time=1:00:00 bash

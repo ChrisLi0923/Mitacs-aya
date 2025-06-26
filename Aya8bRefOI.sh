@@ -29,7 +29,7 @@ cd /scratch/ssd004/scratch/haigelee/Mitacs/AYA
 # python try.py --split single_presence --prompt_mode default
 
 echo "[$(date)] Running co-occurrence with default prompt mode"
-python try.py --split co_occurrence --prompt_mode default
+python Aya8b.py --split co_occurrence --prompt_mode default
 
 echo "[$(date)] All done!"
 #sbatch Aya8bRefOI.sh

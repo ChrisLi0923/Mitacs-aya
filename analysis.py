@@ -12,6 +12,13 @@ from transformers import CLIPProcessor, CLIPModel
 from bert_score import score as bert_score
 from tqdm import tqdm
 import os
+import nltk
+import json
+from torch.nn.functional import normalize
+from PIL import Image
+
+nltk.download('wordnet')
+nltk.download('omw-1.4')
 
 wordcloud_dir = "wordcloud_outputs"
 os.makedirs(wordcloud_dir, exist_ok=True)
@@ -31,8 +38,12 @@ def evaluate_metrics(generated, references):
     smoothie = SmoothingFunction().method1
 
     # BLEU
-    metrics['BLEU-1'] = sentence_bleu(references, generated, weights=(1, 0, 0, 0), smoothing_function=smoothie)
-    metrics['BLEU-4'] = sentence_bleu(references, generated, weights=(0.25, 0.25, 0.25, 0.25), smoothing_function=smoothie)
+    metrics['BLEU-1'] = sentence_bleu(
+        [ref.split() for ref in references], generated.split(),
+        weights=(1, 0, 0, 0), smoothing_function=smoothie)
+    metrics['BLEU-4'] = sentence_bleu(
+        [ref.split() for ref in references], generated.split(),
+        weights=(0.25, 0.25, 0.25, 0.25), smoothing_function=smoothie)
 
     # ROUGE
     scorer = rouge_scorer.RougeScorer(['rouge1', 'rougeL'], use_stemmer=True)
@@ -41,11 +52,11 @@ def evaluate_metrics(generated, references):
     metrics['ROUGE-L'] = rouge_scores['rougeL'].fmeasure
 
     # METEOR
-    metrics['METEOR'] = meteor_score(references, generated)
+    metrics['METEOR'] = meteor_score([ref.split() for ref in references], generated.split())
 
     return metrics
 
-def generate_wordcloud(texts, title,save_path):
+def generate_wordcloud(texts, title, save_path):
     blob = ' '.join(texts)
     wc = WordCloud(width=1000, height=500, background_color="white").generate(blob)
     plt.figure(figsize=(12, 6))
@@ -53,23 +64,44 @@ def generate_wordcloud(texts, title,save_path):
     plt.axis("off")
     plt.title(title)
     plt.tight_layout()
-    plt.savefig(save_path)#plt.show()
+    plt.savefig(save_path)
     plt.close()
 
-# Main eval
+# To collect human-written refs per model for later word clouds
+model_ref_texts = defaultdict(list)
+
 results = {}
 
 for dataset_path in tqdm(dataset_variants):
     print(f"Evaluating: {dataset_path}")
     ds = load_from_disk(str(dataset_path))
+
+    # Access the first example
+    first = ds[0]
+    b_i = first["boxed_image"]
+
+    # ✅ Sanity check
+    print("Type of boxed_image:", type(b_i))
+    print("Is boxed_image a PIL image?", isinstance(b_i, Image.Image))
+    print("Boxed image size:", b_i.size)
+    print("Boxed image mode:", b_i.mode)
+
+
+
+
+
     all_metrics = defaultdict(list)
     gen_texts, ref_texts = [], []
+
+    # Extract model name like 'Aya32b' or 'Aya8b' from path
+    model_name = dataset_path.parts[-2]
 
     for ex in ds:
         generated = ex["generated_expression"]
         references = ex["written_descriptions"]
         gen_texts.append(generated)
         ref_texts.extend(references)
+        model_ref_texts[model_name].extend(references)
 
         m = evaluate_metrics(generated, references)
         for k, v in m.items():
@@ -83,27 +115,53 @@ for dataset_path in tqdm(dataset_variants):
 
     # CLIPScore (approx): limit for speed
     clip_scores = []
-    subset = ds.select(range(min(100, len(ds))))
+    subset = ds
     for ex in subset:
-        inputs = clip_processor(text=ex["generated_expression"], images=ex["image"], return_tensors="pt", padding=True).to(device)
+        inputs = clip_processor(
+            text=ex["generated_expression"],
+            images=ex["boxed_image"],
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=77
+        ).to(device)
         with torch.no_grad():
-            out = clip_model(**inputs)
-            clip_scores.append(out.logits_per_image[0][0].item())
+            # Get embeddings
+            image_features = clip_model.get_image_features(pixel_values=inputs["pixel_values"])
+            text_features = clip_model.get_text_features(input_ids=inputs["input_ids"], attention_mask=inputs["attention_mask"])
+
+            # Normalize
+            image_features = normalize(image_features, dim=-1)
+            text_features = normalize(text_features, dim=-1)
+
+            # Cosine similarity
+            similarity = (image_features @ text_features.T).squeeze().item()
+            clip_scores.append(similarity * 100)  # As per CLIPScore definition
     all_metrics["CLIPScore"] = clip_scores
 
-    # Average
-    avg_metrics = {k: float(np.mean(v)) for k, v in all_metrics.items()}
-    results[dataset_path.name] = avg_metrics
+    # Average metrics
+    avg_metrics = {
+        k: float(np.mean(v)) * (1 if k == "CLIPScore" else 100)
+        for k, v in all_metrics.items()
+    }
 
-    # Wordcloud for generated
-    gen_wc_path = os.path.join(wordcloud_dir, f"{dataset_path.name}_generated_wordcloud.png")
-    generate_wordcloud(gen_texts, f"Generated Expressions: {dataset_path.name}", gen_wc_path)
+    results[f"{model_name}/{dataset_path.name}"] = avg_metrics
 
-# Word cloud for human-written
-human_wc_path = os.path.join(wordcloud_dir, "human_written_wordcloud.png")
-generate_wordcloud(ref_texts, "Human-Written Descriptions (All Datasets)", human_wc_path)
+    # Make subfolder for each model
+    model_wc_dir = os.path.join(wordcloud_dir, model_name)
+    os.makedirs(model_wc_dir, exist_ok=True)
 
-# Print results
-import json
+    # Save generated word cloud
+    gen_wc_path = os.path.join(model_wc_dir, f"{dataset_path.name}_generated_wordcloud.png")
+    generate_wordcloud(gen_texts, f"{model_name} - {dataset_path.name}", gen_wc_path)
+
+# Word cloud for human-written descriptions per model
+for model_name, texts in model_ref_texts.items():
+    model_wc_dir = os.path.join(wordcloud_dir, model_name)
+    os.makedirs(model_wc_dir, exist_ok=True)
+    human_wc_path = os.path.join(model_wc_dir, f"{model_name}_human_written_wordcloud.png")
+    generate_wordcloud(texts, f"Human-Written Descriptions: {model_name}", human_wc_path)
+
+# Save results to JSON
 with open("evaluation_results.json", "w") as f:
     json.dump(results, f, indent=2)
