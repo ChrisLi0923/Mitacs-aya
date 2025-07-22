@@ -3,7 +3,7 @@ import numpy as np
 import cv2
 from PIL import Image
 from torchvision import transforms
-from grad_cam import GradCAM
+from grad_cam import GradCAM, SmoothGradCAM
 from utils import load_model
 
 torch.cuda.empty_cache()
@@ -16,7 +16,7 @@ conversation = [
 
       "role": "user",
       "content": [
-          {"type": "text", "text": "Is there any giraffe?"},
+          {"type": "text", "text": "Is сat on this image?"},
           {"type": "image"},
         ],
     },
@@ -24,7 +24,7 @@ conversation = [
 
 prompt = processor.apply_chat_template(conversation, add_generation_prompt=True)
 
-image_file = "/h/mikl123/cam/images/giraffe.png"
+image_file = "/h/mikl123/Mitacs-aya/images/cat.jpg"
 raw_image = Image.open(image_file).convert("RGB")
 raw_image = raw_image.resize((364, 364))
 
@@ -54,15 +54,16 @@ def make_attention_grad_cam():
     all_images = []
     for i in range(32):
         target_layer = layers[i].input_layernorm
-        gradcam = GradCAM(
+        gradcam = SmoothGradCAM(
             model,
             processor,
             target_layer,
+            num_samples = 1, noise_std = 0,
             input_token_len=len(input_ids),
             output_ids=output_ids,
             image_mask=image_mask
         )
-        heatmap, overlay_img = gradcam.generate_cam_attention(image_tensor, inputs)
+        heatmap, overlay_img = gradcam.generate_smooth_cam_attention(image_tensor, inputs)
         if overlay_img.shape[:2] != (img_h, img_w):
             overlay_img = cv2.resize(overlay_img, (img_w, img_h))
         all_images.append(overlay_img)
@@ -79,7 +80,7 @@ def make_attention_grad_cam():
 
         grid_img[y1:y2, x1:x2, :] = img
 
-    cv2.imwrite("/h/mikl123/Mitacs-aya/results/gradcam_layers_attention.jpg", grid_img)
+    cv2.imwrite("/h/mikl123/Mitacs-aya/results/cat_no_noise_attention.jpg", grid_img)
 
 def make_vision_grad_cam():
     grid_cols = 9
@@ -90,15 +91,16 @@ def make_vision_grad_cam():
     all_images = []
     for i in range(27):
         target_layer = layers[i].layer_norm2
-        gradcam = GradCAM(
+        gradcam = SmoothGradCAM(
             model,
             processor,
             target_layer,
+            num_samples = 1, noise_std = 0,
             input_token_len=len(input_ids),
             output_ids=output_ids,
             image_mask=image_mask
         )
-        heatmap, overlay_img = gradcam.generate_cam_vision_tower(image_tensor, inputs)
+        heatmap, overlay_img = gradcam.generate_smooth_cam_vision_tower(image_tensor, inputs)
         if overlay_img.shape[:2] != (img_h, img_w):
             overlay_img = cv2.resize(overlay_img, (img_w, img_h))
         all_images.append(overlay_img)
@@ -116,7 +118,25 @@ def make_vision_grad_cam():
 
         grid_img[y1:y2, x1:x2, :] = img
 
-    cv2.imwrite("/h/mikl123/Mitacs-aya/results/gradcam_layers_vision.jpg", grid_img)
+    cv2.imwrite("/h/mikl123/Mitacs-aya/results/cat_no_noise_vision.jpg", grid_img)
 
-make_vision_grad_cam()
+def make_backprop(): 
+    all_images = []
+    gradcam = GradCAM(
+        model,
+        processor,
+        None,
+        input_token_len=len(input_ids),
+        output_ids=output_ids,
+        image_mask=image_mask
+    )
+    heatmap = gradcam.generate_cam_input(image_tensor, inputs) 
+
+    heatmap_img = Image.fromarray(heatmap)
+
+    heatmap_img.save("/h/mikl123/Mitacs-aya/results/heatmap_giraffe.png")
+
+
 make_attention_grad_cam()
+make_vision_grad_cam()
+# make_backprop()
