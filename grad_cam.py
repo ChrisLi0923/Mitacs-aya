@@ -13,22 +13,18 @@ from PIL import Image
 import numpy as np
 
 def save_tensor_image(tensor, filename="output.png", unnormalize=False, mean=None, std=None):
-    # Assumes tensor shape is (C, H, W)
     tensor = tensor.detach().cpu().squeeze()
 
     if unnormalize and mean and std:
         for t, m, s in zip(tensor, mean, std):
             t.mul_(s).add_(m)
 
-    # Clamp to [0, 1] then convert to [0, 255]
     array = tensor.numpy()
     array = np.clip(array, 0, 1)
     array = (array * 255).astype(np.uint8)
 
-    # (C, H, W) → (H, W, C)
     array = np.transpose(array, (1, 2, 0))
 
-    # Save with PIL
     Image.fromarray(array).save(filename)
 
 
@@ -56,46 +52,48 @@ class GradCAM():
     def save_gradients(self, module, grad_input, grad_output):
         self.gradients = grad_output[0].detach()
         
-    def generate_cam_attention(self, image, inputs):
+    def generate_cam(self, image, vision_tower = False, smooth = False, logs = False):
         self.model.eval()
-        print(inputs["pixel_values"].size())
         image_tensor = image
-        print(image_tensor.size())
         input_ids = self.output_ids.unsqueeze(0).to(0)
         
         outputs = self.model(input_ids=input_ids, pixel_values=image_tensor)
-
         logits = outputs.logits[0]
-        predicted_logits = logits[self.input_token_len - 1: -1]
+        predicted_logits = torch.softmax(logits[self.input_token_len - 1: -1], dim = -1)
 
-        predicted_token_ids = torch.argmax(predicted_logits, dim=-1)
+        if logs:
+            predicted_token_ids = torch.argmax(predicted_logits, dim=-1)
+            print("Decoded output: ", self.processor[0].decode(predicted_token_ids, skip_special_tokens=False))
+            print("Original output: ", self.processor[0].decode(self.target_ids, skip_special_tokens=False))
+            print("Predicted ids ",predicted_logits.argmax(dim=-1))
+            print("Target ids ",self.target_ids)
 
-        # print(self.processor)
-
-        print("Decoded output: ", self.processor[0].decode(predicted_token_ids, skip_special_tokens=False))
-        print("Original output: ", self.processor[0].decode(self.target_ids, skip_special_tokens=False))
-        # print(len(logits))
-        # print(self.input_token_len)
-        # print(len(self.target_ids))
-        target_logits = predicted_logits.gather(dim=1, index=self.target_ids.unsqueeze(1)).squeeze(1)
-        print(predicted_logits.argmax(dim=-1))
-        print(self.target_ids)
-        # assert all(predicted_logits.argmax(dim=-1) == self.target_ids), 'ids is not the same'
-        # print(target_logits)
+        predicted_logits = predicted_logits[1:-2]
+        target_ids = self.target_ids[1:-2]
+        target_logits = predicted_logits.gather(dim=1, index=target_ids.unsqueeze(1)).squeeze(1)
+        if not smooth:
+            assert all(predicted_logits.argmax(dim=-1) == target_ids), 'ids is not the same'
+            print("passed ")
         
         target_logits = torch.sum(target_logits)
         self.model.zero_grad()
         target_logits.backward()
         
-        print(self.feature_maps.size())
-        print(self.gradients.size())
+        if logs:
+            print("Feature map shape", self.feature_maps.size())
+            print("Gradient shape", self.gradients.size())
 
         self.feature_maps = self.feature_maps.unsqueeze(0).cpu()
         self.gradients = self.gradients.cpu()
         self.image_mask = self.image_mask.cpu()
 
-        self.feature_maps = rearrange(self.feature_maps[:, self.image_mask, :], 'b (h w) c -> b c h w', h=13, w=13)
-        self.gradients = rearrange(self.gradients[:,self.image_mask, :], 'b (h w) c -> b h w c', h=13, w=13)
+        if not vision_tower:
+            self.feature_maps = rearrange(self.feature_maps[:, self.image_mask, :], 'b (h w) c -> b c h w', h=13, w=13)
+            self.gradients = rearrange(self.gradients[:,self.image_mask, :], 'b (h w) c -> b h w c', h=13, w=13)
+        else:
+            self.feature_maps = rearrange(self.feature_maps, 'b (h w) c -> b c h w', h=26, w=26)
+            self.gradients = rearrange(self.gradients, 'b (h w) c -> b h w c', h=26, w=26)
+            
         self.gradients = nn.ReLU()(self.gradients)
         pooled_gradients = torch.mean(self.gradients, dim=[0, 1, 2])
         activation = self.feature_maps.squeeze(0)
@@ -118,67 +116,7 @@ class GradCAM():
         superimposed_img = np.clip(superimposed_img, 0, 255).astype(np.uint8)
 
         return heatmap, superimposed_img
-
-    def generate_cam_vision_tower(self, image, inputs):
-        self.model.eval()
-        torch.cuda.empty_cache()
-        torch.cuda.reset_peak_memory_stats()
-
-        image_tensor = image
-        input_ids = self.output_ids.unsqueeze(0).to(0)
-        
-        outputs = self.model(input_ids=input_ids, pixel_values=image_tensor)
-
-        logits = outputs.logits[0]
-        predicted_logits = logits[self.input_token_len - 1: -1]
-
-        predicted_token_ids = torch.argmax(predicted_logits, dim=-1)
-
-        print("Decoded output: ", self.processor[0].decode(predicted_token_ids, skip_special_tokens=True))
-        print(len(logits))
-        # print(self.input_token_len)
-        # print(len(self.target_ids))
-        target_logits = predicted_logits.gather(dim=1, index=self.target_ids.unsqueeze(1)).squeeze(1)
-        # assert all(predicted_logits.argmax(dim=-1) == self.target_ids), 'ids is not the same'
-        # print(target_logits)
-        
-        target_logits = torch.sum(target_logits)
-
-        self.model.zero_grad()
-        target_logits.backward()
-        
-        print(self.feature_maps.size())
-        print(self.gradients.size())
-        print(self.feature_maps[:200])
-
-        self.feature_maps = self.feature_maps.unsqueeze(0).cpu()
-        self.gradients = self.gradients.cpu()
-        self.image_mask = self.image_mask.cpu()
-
-        self.feature_maps = rearrange(self.feature_maps, 'b (h w) c -> b c h w', h=26, w=26)
-        self.gradients = rearrange(self.gradients, 'b (h w) c -> b h w c', h=26, w=26)
-        self.gradients = nn.ReLU()(self.gradients)
-        pooled_gradients = torch.mean(self.gradients, dim=[0, 1, 2])
-        activation = self.feature_maps.squeeze(0)
-
-        for i in range(activation.size(0)):
-            activation[i, :, :] *= pooled_gradients[i]
-
-        heatmap = torch.mean(activation, dim=0).squeeze().cpu().detach().numpy().astype(np.float32)
-        heatmap = np.maximum(heatmap, 0)
-        heatmap /= np.max(heatmap)
-
-        threshold = 0.5
-        heatmap[heatmap < threshold] = 0
-        heatmap = cv2.resize(heatmap, (image.size(3), image.size(2)))
-        heatmap = np.uint8(255 * heatmap)
-        heatmap = cv2.applyColorMap(heatmap, cv2.COLORMAP_JET)
-
-        original_image = self.unprocess_image(image.squeeze().cpu().numpy())
-        superimposed_img = heatmap * 0.4 + original_image
-        superimposed_img = np.clip(superimposed_img, 0, 255).astype(np.uint8)
-
-        return heatmap, superimposed_img
+    
     def generate_cam_input(self, image, inputs): 
         self.model.eval()
         torch.cuda.empty_cache()
@@ -237,7 +175,6 @@ class GradCAM():
 
         return grad_np
 
-
     def unprocess_image(self, image):
         mean = np.array([0.485, 0.456, 0.406])
         std = np.array([0.229, 0.224, 0.225])
@@ -258,14 +195,15 @@ class SmoothGradCAM(GradCAM):
         save_tensor_image(result_image, filename = "/h/mikl123/Mitacs-aya/images_noised/asd.png")
         return result_image
 
-    def generate_smooth_cam_attention(self, image_tensor, inputs):
+    def generate_smooth_cam(self, image_tensor, inputs, vision_tower = False):
+        smooth = True if self.noise_std != 0 else False
         image_tensor = inputs["pixel_values"].clone()
-        base_cam, _ = self.generate_cam_attention(image_tensor, inputs)
+        base_cam, _ = self.generate_cam(image_tensor, smooth = smooth, vision_tower = vision_tower)
         
         smooth_cam = np.zeros_like(base_cam, dtype=np.float32)
         for _ in tqdm(range(self.num_samples)):
             noisy_image = self.add_noise(image_tensor.clone(), self.noise_std)
-            noisy_cam, _ = self.generate_cam_attention(noisy_image, inputs)
+            noisy_cam, _ = self.generate_cam(noisy_image, smooth = smooth, vision_tower = vision_tower)
             smooth_cam += noisy_cam
 
         smooth_cam /= float(self.num_samples)
@@ -281,25 +219,4 @@ class SmoothGradCAM(GradCAM):
 
         return smooth_cam, superimposed_img
     
-    def generate_smooth_cam_vision_tower(self, image_tensor, inputs):
-        image_tensor = inputs["pixel_values"].clone()
-        base_cam, _ = self.generate_cam_vision_tower(image_tensor, inputs)
         
-        smooth_cam = np.zeros_like(base_cam, dtype=np.float32)
-        for _ in tqdm(range(self.num_samples)):
-            noisy_image = self.add_noise(image_tensor.clone(), self.noise_std)
-            noisy_cam, _ = self.generate_cam_vision_tower(noisy_image, inputs)
-            smooth_cam += noisy_cam
-
-        smooth_cam /= float(self.num_samples)
-        smooth_cam = np.maximum(smooth_cam, 0)
-        smooth_cam /= np.max(smooth_cam)
-        # smooth_cam = cv2.resize(smooth_cam, (image_tensor.size(2), image_tensor.size(1)))
-        smooth_cam = np.uint8(255 * smooth_cam)
-        smooth_cam = cv2.applyColorMap(smooth_cam, cv2.COLORMAP_JET)
-
-        original_image = self.unprocess_image(image_tensor.squeeze().cpu().numpy())
-        superimposed_img = smooth_cam * 0.4 + original_image
-        superimposed_img = np.clip(superimposed_img, 0, 255).astype(np.uint8)
-
-        return smooth_cam, superimposed_img

@@ -16,7 +16,7 @@ conversation = [
 
       "role": "user",
       "content": [
-          {"type": "text", "text": "Is сat on this image?"},
+          {"type": "text", "text": "Is giraffe on this image? Provide only yes no response"},
           {"type": "image"},
         ],
     },
@@ -24,7 +24,7 @@ conversation = [
 
 prompt = processor.apply_chat_template(conversation, add_generation_prompt=True)
 
-image_file = "/h/mikl123/Mitacs-aya/images/cat.jpg"
+image_file = "/h/mikl123/Mitacs-aya/images/giraffe.png"
 raw_image = Image.open(image_file).convert("RGB")
 raw_image = raw_image.resize((364, 364))
 
@@ -63,7 +63,7 @@ def make_attention_grad_cam():
             output_ids=output_ids,
             image_mask=image_mask
         )
-        heatmap, overlay_img = gradcam.generate_smooth_cam_attention(image_tensor, inputs)
+        _, overlay_img = gradcam.generate_smooth_cam(image_tensor, inputs, vision_tower = False)
         if overlay_img.shape[:2] != (img_h, img_w):
             overlay_img = cv2.resize(overlay_img, (img_w, img_h))
         all_images.append(overlay_img)
@@ -80,7 +80,7 @@ def make_attention_grad_cam():
 
         grid_img[y1:y2, x1:x2, :] = img
 
-    cv2.imwrite("/h/mikl123/Mitacs-aya/results/cat_no_noise_attention.jpg", grid_img)
+    cv2.imwrite("/h/mikl123/Mitacs-aya/results/irafe_att.jpg", grid_img)
 
 def make_vision_grad_cam():
     grid_cols = 9
@@ -100,7 +100,7 @@ def make_vision_grad_cam():
             output_ids=output_ids,
             image_mask=image_mask
         )
-        heatmap, overlay_img = gradcam.generate_smooth_cam_vision_tower(image_tensor, inputs)
+        heatmap, overlay_img = gradcam.generate_smooth_cam(image_tensor, inputs, vision_tower=True)
         if overlay_img.shape[:2] != (img_h, img_w):
             overlay_img = cv2.resize(overlay_img, (img_w, img_h))
         all_images.append(overlay_img)
@@ -118,7 +118,7 @@ def make_vision_grad_cam():
 
         grid_img[y1:y2, x1:x2, :] = img
 
-    cv2.imwrite("/h/mikl123/Mitacs-aya/results/cat_no_noise_vision.jpg", grid_img)
+    cv2.imwrite("/h/mikl123/Mitacs-aya/results/irafe_vision.jpg", grid_img)
 
 def make_backprop(): 
     all_images = []
