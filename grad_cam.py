@@ -97,11 +97,10 @@ class GradCAM():
         self.gradients = nn.ReLU()(self.gradients)
         pooled_gradients = torch.mean(self.gradients, dim=[0, 1, 2])
         activation = self.feature_maps.squeeze(0)
-
+        
         for i in range(activation.size(0)):
             activation[i, :, :] *= pooled_gradients[i]
-
-        heatmap = torch.mean(activation, dim=0).squeeze().cpu().detach().numpy().astype(np.float32)
+        heatmap = torch.sum(activation, dim=0).squeeze().cpu().detach().numpy().astype(np.float32)
         heatmap = np.maximum(heatmap, 0)
         heatmap /= np.max(heatmap)
 
@@ -219,4 +218,98 @@ class SmoothGradCAM(GradCAM):
 
         return smooth_cam, superimposed_img
     
+
+class GuidedBackpropAyaVision:
+    def __init__(self, model, processor, target_layer, input_token_len, output_ids, image_mask):
+        self.model = model
+        self.processor = processor,
+        self.target_layer = target_layer
+        self.feature_maps = None
+        self.gradients = None
+        self.input_token_len = input_token_len
+        self.output_ids = output_ids
+        self.target_ids = self.output_ids[self.input_token_len:]
+        self.image_mask = image_mask
+        self.image_reconstruction = None # store R0
+        self.activation_maps = []
         
+    def guided_relu_hook(module, grad_in, grad_out):
+        # grad_in: incoming gradient to ReLU (from next layer)
+        # grad_out: outgoing gradient from ReLU (to previous layer)
+        # grad_out[0] is the gradient w.r.t. output of ReLU
+        guided_grad = torch.clamp(grad_out[0], min=0.0)  # remove negative gradients
+        return (guided_grad,)
+
+    def forward_hook_fn(self, semodule, input, output):
+        self.activation_maps.append(output)
+
+    def backward_hook_fn(self, module, grad_in, grad_out):
+        grad = self.activation_maps.pop() 
+        # for the forward pass, after the ReLU operation, 
+        # if the output value is positive, we set the value to 1,
+        # and if the output value is negative, we set it to 0.
+        grad[grad > 0] = 1 
+        
+        # grad_out[0] stores the gradients for each feature map,
+        # and we only retain the positive gradients
+        positive_grad_out = torch.clamp(grad_out[0], min=0.0)
+        new_grad_in = positive_grad_out * grad
+
+        return (new_grad_in,)
+    
+    def normalize(self, image):
+        norm = (image - image.mean())/image.std()
+        norm = norm * 0.1
+        norm = norm + 0.5
+        norm = norm.clip(0, 1)
+        return norm
+    
+    def generate_cam_input(self, image, inputs):
+        self.model.eval()
+        torch.cuda.empty_cache()
+        torch.cuda.reset_peak_memory_stats()
+
+        # Register hooks on all ReLU layers in the model
+        # for module in self.model.modules():
+        #     if isinstance(module, torch.nn.SiLU):
+        #         module.register_forward_hook(self.forward_hook_fn)
+        #         module.register_backward_hook(self.backward_hook_fn)
+
+        first_layer = self.model.vision_tower.vision_model.embeddings.patch_embedding
+
+        # Attach the hook
+        def first_layer_hook_fn(module, grad_in, grad_out):
+            print("grad_in[0] shape:", grad_in[0].shape) 
+            self.image_reconstruction = grad_in[0]
+
+        first_layer.register_backward_hook(first_layer_hook_fn)
+
+        image_tensor = inputs["pixel_values"].requires_grad_(True)
+        input_ids = self.output_ids.unsqueeze(0).to(0)
+
+        outputs = self.model(input_ids=input_ids, pixel_values=image_tensor)
+
+        logits = outputs.logits[0]
+        predicted_logits = logits[self.input_token_len - 1: -1]
+        predicted_token_ids = torch.argmax(predicted_logits, dim=-1)
+
+        print("Decoded output: ", self.processor[0].decode(predicted_token_ids, skip_special_tokens=True))
+        print(len(logits))
+
+        target_logits = predicted_logits.gather(dim=1, index=self.target_ids.unsqueeze(1)).squeeze(1)
+        assert all(predicted_logits.argmax(dim=-1) == self.target_ids), 'ids is not the same'
+        target_logits = torch.sum(target_logits)
+
+        self.model.zero_grad()
+        if image_tensor.grad is not None:
+            image_tensor.grad.zero_()
+
+        target_logits.backward()
+
+        print("reconstruction image",sum(self.image_reconstruction))
+        print("reconstruction image",self.image_reconstruction.size())
+
+        results = self.image_reconstruction.data[0].permute(1,2,0)
+        results = self.normalize(results).cpu().detach().numpy()
+        results = (results * 255).clip(0, 255).astype(np.uint8)
+        return results

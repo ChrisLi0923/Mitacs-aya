@@ -3,7 +3,7 @@ import numpy as np
 import cv2
 from PIL import Image
 from torchvision import transforms
-from grad_cam import GradCAM, SmoothGradCAM
+from grad_cam import GradCAM, SmoothGradCAM,GuidedBackpropAyaVision
 from utils import load_model
 
 torch.cuda.empty_cache()
@@ -13,10 +13,9 @@ model, processor = load_model()
 
 conversation = [
     {
-
       "role": "user",
       "content": [
-          {"type": "text", "text": "Is giraffe on this image? Provide only yes no response"},
+          {"type": "text", "text": "Is giraffe on this image? Answer yes or no."},
           {"type": "image"},
         ],
     },
@@ -80,7 +79,7 @@ def make_attention_grad_cam():
 
         grid_img[y1:y2, x1:x2, :] = img
 
-    cv2.imwrite("/h/mikl123/Mitacs-aya/results/irafe_att.jpg", grid_img)
+    cv2.imwrite("/h/mikl123/Mitacs-aya/results/giraffe_att_no_special_fixed.jpg", grid_img)
 
 def make_vision_grad_cam():
     grid_cols = 9
@@ -118,11 +117,11 @@ def make_vision_grad_cam():
 
         grid_img[y1:y2, x1:x2, :] = img
 
-    cv2.imwrite("/h/mikl123/Mitacs-aya/results/irafe_vision.jpg", grid_img)
+    cv2.imwrite("/h/mikl123/Mitacs-aya/results/giraffe_vis_no_special_fixed.jpg", grid_img)
 
 def make_backprop(): 
     all_images = []
-    gradcam = GradCAM(
+    gradcam = GuidedBackpropAyaVision(
         model,
         processor,
         None,
@@ -134,9 +133,9 @@ def make_backprop():
 
     heatmap_img = Image.fromarray(heatmap)
 
-    heatmap_img.save("/h/mikl123/Mitacs-aya/results/heatmap_giraffe.png")
+    heatmap_img.save("/h/mikl123/Mitacs-aya/results/heatmap_giraffe_new_44.png")
 
 
 make_attention_grad_cam()
 make_vision_grad_cam()
-# make_backprop()
+make_backprop()
